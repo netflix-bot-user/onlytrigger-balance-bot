@@ -4,7 +4,7 @@ AUTO-RECOVERY + REFUND SAFE VERSION
 """
 
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List, Dict, Any
+from typing import Optional, Dict, Any
 from bson import ObjectId
 
 from .mongo import get_database
@@ -101,9 +101,7 @@ class AccountsDB:
     @classmethod
     async def reset_to_available(cls) -> int:
         """
-        🔑 IMPORTANT:
         Used when key is refunded.
-        Handler EXPECTS this method.
         Moves ALL processing accounts back to available.
         """
         result = await cls._collection().update_many(
@@ -155,7 +153,27 @@ class AccountsDB:
         )
         return result.modified_count
 
-    # ================== STATS ==================
+    # ================== 📊 STATS (FIXED) ==================
+
+    @classmethod
+    async def get_stats(cls) -> Dict[str, int]:
+        """
+        Used by admin menu
+        """
+        col = cls._collection()
+
+        available = await col.count_documents({"status": "available"})
+        processing = await col.count_documents({"status": "processing"})
+        loaded = await col.count_documents({"status": "loaded"})
+        failed = await col.count_documents({"status": "failed"})
+
+        return {
+            "available": available,
+            "processing": processing,
+            "loaded": loaded,
+            "failed": failed,
+            "total": available + processing + loaded + failed
+        }
 
     @classmethod
     async def count(cls, status: Optional[str] = None) -> int:
