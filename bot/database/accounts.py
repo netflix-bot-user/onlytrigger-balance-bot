@@ -1,9 +1,11 @@
 """
 Accounts (stock) collection operations.
-FIXED VERSION:
-- Failed accounts never return to available
-- No infinite loop possible
+AUTO-RECOVERY ENABLED VERSION
+- processing is TEMPORARY
+- auto release after delivery
+- crash safe
 """
+
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any
 from bson import ObjectId
@@ -24,11 +26,9 @@ class AccountsDB:
     async def add(cls, credentials: str, added_by: int = None) -> str:
         doc = {
             "credentials": credentials,
-            "status": "available",  # available, processing, loaded, failed
+            "status": "available",
             "added_at": datetime.now(timezone.utc),
             "added_by": added_by,
-
-            # analytics
             "load_started_at": None,
             "load_finished_at": None,
             "load_duration_seconds": None,
@@ -85,7 +85,7 @@ class AccountsDB:
     @classmethod
     async def get_available(cls) -> Optional[Dict[str, Any]]:
         """
-        Atomically pick ONE available account and lock it as processing.
+        Atomically lock ONE account.
         """
         return await cls._collection().find_one_and_update(
             {"status": "available"},
@@ -108,7 +108,7 @@ class AccountsDB:
             accounts.append(acc)
         return accounts
 
-    # -------------------- RESULT HANDLING --------------------
+    # -------------------- DELIVERY RESULT --------------------
 
     @classmethod
     async def mark_loaded(
@@ -121,18 +121,10 @@ class AccountsDB:
         cards_total: int = None,
         load_attempts: int = None
     ) -> bool:
+        """
+        ACCOUNT USED SUCCESSFULLY → REMOVE FROM STOCK
+        """
         now = datetime.now(timezone.utc)
-
-        acc = await cls._collection().find_one({"_id": ObjectId(account_id)})
-        if not acc:
-            return False
-
-        duration = None
-        if acc.get("load_started_at"):
-            start = acc["load_started_at"]
-            if start.tzinfo is None:
-                start = start.replace(tzinfo=timezone.utc)
-            duration = (now - start).total_seconds()
 
         result = await cls._collection().update_one(
             {"_id": ObjectId(account_id)},
@@ -140,7 +132,7 @@ class AccountsDB:
                 "$set": {
                     "status": "loaded",
                     "load_finished_at": now,
-                    "load_duration_seconds": duration,
+                    "load_duration_seconds": None,
                     "initial_balance": initial_balance,
                     "final_balance": final_balance,
                     "target_balance": target_balance,
@@ -156,59 +148,62 @@ class AccountsDB:
     async def mark_failed(
         cls,
         account_id: str,
-        error_message: str = None,
-        final_balance: float = None
+        error_message: str = None
     ) -> bool:
         """
         FAILED = FINAL STATE
-        Never reused.
         """
-        now = datetime.now(timezone.utc)
-
-        acc = await cls._collection().find_one({"_id": ObjectId(account_id)})
-        if not acc:
-            return False
-
-        duration = None
-        if acc.get("load_started_at"):
-            start = acc["load_started_at"]
-            if start.tzinfo is None:
-                start = start.replace(tzinfo=timezone.utc)
-            duration = (now - start).total_seconds()
-
         result = await cls._collection().update_one(
             {"_id": ObjectId(account_id)},
             {
                 "$set": {
                     "status": "failed",
-                    "load_finished_at": now,
-                    "load_duration_seconds": duration,
                     "error_message": error_message,
-                    "final_balance": final_balance
+                    "load_finished_at": datetime.now(timezone.utc)
                 }
             }
         )
         return result.modified_count > 0
 
-    # -------------------- DELETE (DELIVERED) --------------------
+    # -------------------- AUTO RELEASE (IMPORTANT) --------------------
 
     @classmethod
-    async def delete(cls, account_id: str) -> bool:
+    async def release_processing_accounts(cls) -> int:
         """
-        Used when account is DELIVERED to user.
+        After order delivery OR bot restart:
+        processing → available
         """
-        result = await cls._collection().delete_one({"_id": ObjectId(account_id)})
-        return result.deleted_count > 0
-
-    # -------------------- RESET (DISABLED) --------------------
+        result = await cls._collection().update_many(
+            {"status": "processing"},
+            {
+                "$set": {
+                    "status": "available",
+                    "load_started_at": None
+                }
+            }
+        )
+        return result.modified_count
 
     @classmethod
-    async def reset_to_available(cls, account_id: str) -> bool:
+    async def release_old_processing(cls, minutes: int = 5) -> int:
         """
-        DISABLED ON PURPOSE.
-        Failed or processed accounts must NEVER return to available.
+        Safety net: release stuck processing accounts
         """
-        return False
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+
+        result = await cls._collection().update_many(
+            {
+                "status": "processing",
+                "load_started_at": {"$lt": cutoff}
+            },
+            {
+                "$set": {
+                    "status": "available",
+                    "load_started_at": None
+                }
+            }
+        )
+        return result.modified_count
 
     # -------------------- STATS --------------------
 
@@ -232,34 +227,3 @@ class AccountsDB:
             stats["total"] += r["count"]
 
         return stats
-
-    # -------------------- CLEANUP --------------------
-
-    @classmethod
-    async def clear_all(cls, status: Optional[str] = None) -> int:
-        query = {}
-        if status:
-            query["status"] = status
-        result = await cls._collection().delete_many(query)
-        return result.deleted_count
-
-    @classmethod
-    async def recover_stale_processing(cls, timeout_minutes: int = 10) -> int:
-        """
-        If processing gets stuck → mark FAILED (NOT available)
-        """
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
-
-        result = await cls._collection().update_many(
-            {
-                "status": "processing",
-                "load_started_at": {"$lt": cutoff}
-            },
-            {
-                "$set": {
-                    "status": "failed",
-                    "error_message": "Processing timeout"
-                }
-            }
-        )
-        return result.modified_count
