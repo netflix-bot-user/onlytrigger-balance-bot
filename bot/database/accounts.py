@@ -122,7 +122,7 @@ class AccountsDB:
         load_attempts: int = None
     ) -> bool:
         """
-        ACCOUNT USED SUCCESSFULLY → REMOVE FROM STOCK
+        ACCOUNT USED SUCCESSFULLY → FINAL STATE
         """
         now = datetime.now(timezone.utc)
 
@@ -132,7 +132,6 @@ class AccountsDB:
                 "$set": {
                     "status": "loaded",
                     "load_finished_at": now,
-                    "load_duration_seconds": None,
                     "initial_balance": initial_balance,
                     "final_balance": final_balance,
                     "target_balance": target_balance,
@@ -165,16 +164,21 @@ class AccountsDB:
         )
         return result.modified_count > 0
 
-    # -------------------- AUTO RELEASE (IMPORTANT) --------------------
+    # -------------------- AUTO RESTORE / RECOVERY --------------------
 
     @classmethod
-    async def release_processing_accounts(cls) -> int:
+    async def recover_stale_processing(cls, timeout_minutes: int = 10) -> int:
         """
-        After order delivery OR bot restart:
-        processing → available
+        Restore processing accounts stuck for more than timeout_minutes
+        Called on bot startup
         """
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
+
         result = await cls._collection().update_many(
-            {"status": "processing"},
+            {
+                "status": "processing",
+                "load_started_at": {"$lt": cutoff_time}
+            },
             {
                 "$set": {
                     "status": "available",
@@ -185,17 +189,13 @@ class AccountsDB:
         return result.modified_count
 
     @classmethod
-    async def release_old_processing(cls, minutes: int = 5) -> int:
+    async def release_processing_accounts(cls) -> int:
         """
-        Safety net: release stuck processing accounts
+        Force release ALL processing accounts
+        (used after delivery or admin reset)
         """
-        cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
-
         result = await cls._collection().update_many(
-            {
-                "status": "processing",
-                "load_started_at": {"$lt": cutoff}
-            },
+            {"status": "processing"},
             {
                 "$set": {
                     "status": "available",
@@ -220,7 +220,14 @@ class AccountsDB:
         cursor = cls._collection().aggregate(pipeline)
         results = await cursor.to_list(length=10)
 
-        stats = {"available": 0, "processing": 0, "loaded": 0, "failed": 0, "total": 0}
+        stats = {
+            "available": 0,
+            "processing": 0,
+            "loaded": 0,
+            "failed": 0,
+            "total": 0
+        }
+
         for r in results:
             if r["_id"] in stats:
                 stats[r["_id"]] = r["count"]
