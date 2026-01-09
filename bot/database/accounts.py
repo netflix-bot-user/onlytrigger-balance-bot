@@ -1,6 +1,6 @@
 """
 Accounts (stock) collection operations.
-AUTO-RECOVERY ENABLED VERSION
+AUTO-RECOVERY + REFUND SAFE VERSION
 """
 
 from datetime import datetime, timezone, timedelta
@@ -13,11 +13,13 @@ from .mongo import get_database
 class AccountsDB:
     """Database operations for account stock."""
 
+    # ================== COLLECTION ==================
+
     @staticmethod
     def _collection():
         return get_database().accounts
 
-    # -------------------- ADD ACCOUNTS --------------------
+    # ================== ADD ACCOUNTS ==================
 
     @classmethod
     async def add(cls, credentials: str, added_by: int = None) -> str:
@@ -26,6 +28,8 @@ class AccountsDB:
             "status": "available",
             "added_at": datetime.now(timezone.utc),
             "added_by": added_by,
+
+            # delivery tracking
             "load_started_at": None,
             "load_finished_at": None,
             "initial_balance": None,
@@ -36,11 +40,13 @@ class AccountsDB:
         result = await cls._collection().insert_one(doc)
         return str(result.inserted_id)
 
-    # -------------------- PICK ACCOUNTS --------------------
+    # ================== PICK ACCOUNT ==================
 
     @classmethod
     async def get_available(cls) -> Optional[Dict[str, Any]]:
-        """Lock ONE account atomically"""
+        """
+        Atomically pick ONE available account
+        """
         return await cls._collection().find_one_and_update(
             {"status": "available"},
             {
@@ -52,7 +58,7 @@ class AccountsDB:
             return_document=True
         )
 
-    # -------------------- DELIVERY RESULTS --------------------
+    # ================== DELIVERY RESULT ==================
 
     @classmethod
     async def mark_loaded(
@@ -90,18 +96,18 @@ class AccountsDB:
         )
         return result.modified_count > 0
 
-    # -------------------- 🔥 AUTO RESTORE METHODS --------------------
+    # ================== 🔥 AUTO RESTORE ==================
 
     @classmethod
-    async def reset_to_available(cls, account_ids: List[str]) -> int:
+    async def reset_to_available(cls) -> int:
         """
-        Used when key is refunded or delivery cancelled
+        🔑 IMPORTANT:
+        Used when key is refunded.
+        Handler EXPECTS this method.
+        Moves ALL processing accounts back to available.
         """
         result = await cls._collection().update_many(
-            {
-                "_id": {"$in": [ObjectId(aid) for aid in account_ids]},
-                "status": "processing"
-            },
+            {"status": "processing"},
             {
                 "$set": {
                     "status": "available",
@@ -114,7 +120,8 @@ class AccountsDB:
     @classmethod
     async def recover_stale_processing(cls, timeout_minutes: int = 10) -> int:
         """
-        Restore processing accounts stuck due to crash / timeout
+        Auto-recover accounts stuck in processing
+        (server crash / bot restart / timeout)
         """
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
 
@@ -148,7 +155,7 @@ class AccountsDB:
         )
         return result.modified_count
 
-    # -------------------- STATS --------------------
+    # ================== STATS ==================
 
     @classmethod
     async def count(cls, status: Optional[str] = None) -> int:
