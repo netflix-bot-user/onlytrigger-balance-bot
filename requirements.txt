@@ -1,0 +1,12 @@
+# Telegram Bot
+python-telegram-bot[all]>=21.0
+
+# MongoDB (pymongo includes bson - do NOT install standalone bson package)
+motor>=3.3.0
+pymongo>=4.6.0
+
+# HTTP Client
+aiohttp>=3.9.0
+
+# Environment Variables
+python-dotenv>=1.0.0
