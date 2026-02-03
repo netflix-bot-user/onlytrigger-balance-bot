@@ -6,15 +6,22 @@ import hashlib
 import time
 import logging
 import aiohttp
+<<<<<<< HEAD
 import base64
 import random
 from urllib.parse import urlparse
 import json
 from typing import Dict, List, Optional, Any, Tuple
+=======
+from urllib.parse import urlparse
+import json
+from typing import Dict, List, Optional, Any
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
 from bot.config import DEBUG
 
 logger = logging.getLogger(__name__)
 
+<<<<<<< HEAD
 # Dynamic rules - matching Go DynamicRules struct
 DYNAMIC_RULES = {
     "static_param": "ClXwEhOicMgBlGQ7zMt1vV2Pb7qJrLuq",
@@ -23,10 +30,20 @@ DYNAMIC_RULES = {
     "app_token": "33d57ade8c02dbc5a333db99ff9ae26a",
     "revision": "202502050939-12f98d453f",
     "format": "25369:%s:%x:66740a1b",  # Will be updated from remote
+=======
+# Dynamic rules - fetched at startup
+RULES = {
+    "static_param": "",
+    "checksum_indexes": [],
+    "checksum_constant": 0,
+    "prefix": "",
+    "suffix": ""
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
 }
 
 
 async def fetch_rules():
+<<<<<<< HEAD
     """
     Fetch dynamic rules from GitHub - matches Go FetchHeader().
     URL: https://raw.githubusercontent.com/DATAHOARDERS/dynamic-rules/refs/heads/main/onlyfans.json
@@ -42,10 +59,19 @@ async def fetch_rules():
             async with session.get(
                 "https://raw.githubusercontent.com/DATAHOARDERS/dynamic-rules/refs/heads/main/onlyfans.json",
                 headers=headers,
+=======
+    """Fetch dynamic rules from GitHub."""
+    global RULES
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                "https://raw.githubusercontent.com/rafa-9/dynamic-rules/main/rules.json",
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as resp:
                 if resp.status == 200:
                     text = await resp.text()
+<<<<<<< HEAD
                     # Handle escaped JSON string (like Go does)
                     text = text.replace('\\"', '"')
                     text = text.strip('"')
@@ -62,6 +88,9 @@ async def fetch_rules():
                     DYNAMIC_RULES["format"] = fmt
                     
                     logger.info(f"[fetch_rules] Loaded dynamic rules: static_param={DYNAMIC_RULES['static_param'][:10]}...")
+=======
+                    RULES = json.loads(text)
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
                     return True
                 else:
                     logger.warning(f"[fetch_rules] Non-200 status: {resp.status}")
@@ -70,6 +99,7 @@ async def fetch_rules():
     return False
 
 
+<<<<<<< HEAD
 def get_xbc(user_agent: str = None) -> str:
     """
     Generate x-bc fingerprint - matches Go GetXBC().
@@ -139,6 +169,38 @@ def generate_sign(link: str, headers: Dict[str, str]) -> Dict[str, str]:
     headers.update({
         "sign": sign,
         "time": final_time,
+=======
+def generate_sign(link: str, headers: Dict[str, str]) -> Dict[str, str]:
+    """Generate request signature."""
+    time2 = str(round(time.time() * 1000))
+    
+    path = urlparse(link).path
+    query = urlparse(link).query
+    path = path if not query else f"{path}?{query}"
+    
+    static_param = RULES.get("static_param", "")
+    
+    a = [static_param, time2, path, headers["User-Id"]]
+    msg = "\n".join(a)
+    
+    message = msg.encode("utf-8")
+    hash_object = hashlib.sha1(message, usedforsecurity=False)
+    sha_1_sign = hash_object.hexdigest()
+    sha_1_b = sha_1_sign.encode("ascii")
+    
+    checksum_indexes = RULES.get("checksum_indexes", [])
+    checksum_constant = RULES.get("checksum_constant", 0)
+    checksum = sum(sha_1_b[i] for i in checksum_indexes if i < len(sha_1_b)) + checksum_constant
+    
+    prefix = RULES.get("prefix", "")
+    suffix = RULES.get("suffix", "")
+    final_sign = f"{prefix}:{sha_1_sign}:{abs(checksum):x}:{suffix}"
+    
+    headers.update({
+        "sign": final_sign,
+        "time": time2,
+        "x-of-rev": "202505171015-e9fb49d48d"
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
     })
     return headers
 
@@ -146,6 +208,7 @@ def generate_sign(link: str, headers: Dict[str, str]) -> Dict[str, str]:
 class OnlyFansAPI:
     """Async OnlyFans API client."""
     
+<<<<<<< HEAD
     # Default user agent if none provided
     DEFAULT_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     
@@ -164,6 +227,11 @@ class OnlyFansAPI:
         self._x_of_rev: str = ""  # X-Of-Rev header
         self._cookie: str = ""
         self._logged_in: bool = False
+=======
+    def __init__(self, proxy: str = None):
+        self.proxy = proxy
+        self._session: Optional[aiohttp.ClientSession] = None
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
     
     async def __aenter__(self):
         await self._ensure_session()
@@ -180,6 +248,7 @@ class OnlyFansAPI:
         if self._session and not self._session.closed:
             await self._session.close()
     
+<<<<<<< HEAD
     @staticmethod
     def _generate_xbc(user_agent: str) -> str:
         """
@@ -457,6 +526,30 @@ class OnlyFansAPI:
         
         return None, None, cookies_part
     
+=======
+    def _get_default_headers(self) -> Dict[str, str]:
+        return {
+            "Accept": "application/json, text/plain, */*",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "en-GB,en;q=0.9,en-US;q=0.8,fa;q=0.7",
+            "app-token": "33d57ade8c02dbc5a333db99ff9ae26a",
+            "Priority": "u=1, i",
+            "x-of-rev": "202502050939-12f98d453f"
+        }
+    
+    def _get_headers(self, uid: str, sess: str, xbc: str, ua: str, xhash: str) -> Dict[str, str]:
+        headers = self._get_default_headers()
+        cookies = '; '.join([f'fp={xbc}', f'sess={sess}', f'auth_id={uid}', 'lang=en'])
+        headers.update({
+            'User-Agent': ua,
+            'X-Bc': xbc,
+            'User-Id': uid,
+            'Cookie': cookies,
+            'X-Hash': xhash
+        })
+        return headers
+    
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
     async def validate_proxy(self) -> tuple[bool, str]:
         """
         Validate proxy connectivity before loading.
@@ -674,12 +767,17 @@ class OnlyFansAPI:
         """
         Load an account to target balance.
         
+<<<<<<< HEAD
         Tries email:pass login first if available, falls back to cookies.
         
         Args:
             credentials: Account credentials
                 Format 1: "email:pass ... Cookies: sess:xbc:uid:ua" (tries login first)
                 Format 2: "sess:xbc:uid:ua" (cookies only)
+=======
+        Args:
+            credentials: Account credentials (sess:xbc:uid:ua)
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
             target: Target balance to reach
             amount_per_round: Amount to load per round
             delay: Delay between rounds in seconds
@@ -699,6 +797,7 @@ class OnlyFansAPI:
             "cards_used": 0,
             "cards_total": 0,
             "load_attempts": 0,
+<<<<<<< HEAD
             "error": None,
             "auth_method": None  # 'login' or 'cookies'
         }
@@ -763,19 +862,65 @@ class OnlyFansAPI:
         
         # Now we're authenticated - get headers
         headers = self._get_headers()
+=======
+            "error": None
+        }
+        
+        try:
+            creds = credentials
+            
+            if "Cookies:" in credentials:
+                creds = credentials.split("Cookies:")[-1].strip()
+            elif "cookies:" in credentials.lower():
+                idx = credentials.lower().find("cookies:")
+                creds = credentials[idx + 8:].strip()
+            
+            parts = creds.split(':')
+            if len(parts) < 4:
+                result["error"] = f"Invalid credentials format (got {len(parts)} parts, need 4)"
+                logger.error(f"[API] Invalid creds format: {creds[:50]}...")
+                return result
+            
+            sess, xbc, uid = parts[0:3]
+            ua = ':'.join(parts[3:])
+            
+            logger.debug(f"[API] Parsed credentials: uid={uid[:8]}..., sess={sess[:8]}...")
+        except Exception as e:
+            result["error"] = f"Failed to parse credentials: {e}"
+            logger.error(f"[API] Parse error: {e}")
+            return result
+        
+        # Get hash
+        xhash = await self.get_hash()
+        if not xhash:
+            result["error"] = "Failed to get X-Hash (network/proxy issue)"
+            logger.error(f"[API] Failed to get X-Hash for uid={uid[:8]}...")
+            return result
+        
+        headers = self._get_headers(uid, sess, xbc, ua, xhash)
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
         
         # Get user info
         me = await self.get_me(headers)
         if not me:
+<<<<<<< HEAD
             result["error"] = "Failed to get user info (session expired or invalid)"
             logger.error(f"[API] Failed to get user info for uid={self._uid[:8]}...")
+=======
+            result["error"] = "Failed to get user info (session expired)"
+            logger.error(f"[API] Failed to get user info for uid={uid[:8]}... - session likely expired")
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
             return result
         
         balance = me.get('creditBalance', 0)
         result["initial_balance"] = balance
         result["final_balance"] = balance
         
+<<<<<<< HEAD
         logger.info(f"[API] Account uid={self._uid[:8]}... initial balance=${balance}, target=${target}")
+=======
+        logger.info(f"[API] Account uid={uid[:8]}... initial balance=${balance}, target=${target}")
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
         
         if balance >= target:
             result["success"] = True
@@ -790,7 +935,11 @@ class OnlyFansAPI:
         
         if not cards:
             result["error"] = "No valid payment cards found"
+<<<<<<< HEAD
             logger.warning(f"[API] No valid cards for uid={self._uid[:8]}...")
+=======
+            logger.warning(f"[API] No valid cards for uid={uid[:8]}...")
+>>>>>>> bfb76ee0bfe8604ccc4920a6199fef6a02c7a55c
             return result
         
         # Disable notifications
