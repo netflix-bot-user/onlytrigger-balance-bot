@@ -450,7 +450,7 @@ class OnlyFansAPI:
             parts = email_pass_part.split(':')
             if len(parts) >= 2:
                 email = parts[0].strip()
-                password = parts[1].strip()
+                password = parts[1].split(' ')[0].strip()
                 # Validate email format loosely
                 if '@' in email and '.' in email:
                     return email, password, cookies_part
